@@ -58,7 +58,7 @@ class SolveResult:
     objective: Optional[float] = None
     solution: Optional[dict[str, Any]] = None
     raw_status: Optional[str] = None
-    statistics: dict[str, Any] = field(default_factory=dict)
+    statistics: dict[str, Any] = field(default_factory=dict) # statistics of the solve performance, really important for the performance evaluation
 
     @property
     def compile_success(self) -> bool:
@@ -99,7 +99,7 @@ def _search_paths() -> Optional[list[str]]:
         extra.append(str(Path(env) / "bin"))
     return extra or None
 
-
+# identify local minizinc executable and solver is ready to use
 def probe(
     solver_id: str = DEFAULT_SOLVER_ID,
     time_limit_s: int = DEFAULT_TIME_LIMIT_S,
