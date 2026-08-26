@@ -1,1 +1,8 @@
-# Ignore run artefacts, local secrets, and Python cache.
+# Ignore run artefacts, API keys, and Python cache.
+runs/*
+!runs/.gitkeep
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/

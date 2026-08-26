@@ -1,1 +1,1 @@
-# Generate and repair prompt templates (always re-attach original NL; never include gold.mzn).
+# Generate and repair prompt templates (NL only; never MiniZinc gold).

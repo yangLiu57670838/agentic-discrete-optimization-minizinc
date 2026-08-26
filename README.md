@@ -1,1 +1,1 @@
-<!-- How to install MiniZinc, set the API key, and run check-gold and the agent. -->
+<!-- Install MiniZinc, pip install -r requirements.txt, then: python -m ado_mzn check-minizinc -->

@@ -1,1 +1,2 @@
 # Python dependencies for the NL-to-MiniZinc agent and MiniZinc Python oracle.
+minizinc>=0.9

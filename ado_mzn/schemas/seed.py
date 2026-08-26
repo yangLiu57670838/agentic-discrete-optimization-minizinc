@@ -1,1 +1,1 @@
-# Parse data/seed_problems.md headings into seed records (NL, inventory, gold path).
+# Parse data/seed_problems.md headings into NL seed records (no gold MiniZinc).
