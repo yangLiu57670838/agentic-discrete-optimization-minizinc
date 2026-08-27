@@ -79,6 +79,7 @@ while result in {COMPILE_ERROR, SOLVER_ERROR} and repairs_used < 3:
 - Prompt the model to put sets, parameters, constraints, and `solve` in **a single `.mzn`**.
 - Wall clock cap: **180s** per seed including LLM. API key via env only; never put the key in `run_config`.
 - Seeds contain **no MiniZinc**. The agent prompt is the NL seed only.
+- Multiple problems in one seed file are **split by Python**, not by the LLM (see §7).
 
 **CLI:**
 
@@ -187,6 +188,32 @@ Do not headline a success **rate** unless N is large enough to mean something; f
 A bundled smoke model (`ado_mzn/toolchain/fixtures/smoke.mzn`) is **not** a seed. It only proves the compiler works.
 
 You may hand-write **several** problems (4–9 is a reasonable range if they are all complete). **N = number of NL seeds that pass the completeness test at freeze.**
+
+### Split plan (Python harness, not the LLM)
+
+One markdown file may hold many problems. **Splitting is entirely the harness’s job.**
+
+| Who | Responsibility |
+|---|---|
+| **Author** | Write each problem under its own `## p0N — …` heading in `data/seed_problems.md`. |
+| **`ado_mzn/schemas/seed.py`** | Parse the file: split on `##` headings → a list of seed records (`id`, family, type, problem text, instance data, constraints, objective). Incomplete headings are omitted from the headline run. |
+| **`ado_mzn/eval/runner.py`** | Loop **one seed at a time**. For each seed: generate once → compile/solve → optional repair → write that seed’s artefacts. |
+| **LLM** | Sees **only the current seed’s NL** in each `generate` / `repair` call. Never receives the whole seed file or other seeds’ text. |
+
+```
+seed_problems.md
+  ## p01 ...
+  ## p02 ...
+        │
+        ▼  seed.py (split + parse)
+  [Seed(p01), Seed(p02), ...]
+        │
+        ▼  runner.py (for each seed)
+  LLM.generate(nl_of_p01 only) → runs/<id>/p01/attempt_0.mzn
+  LLM.generate(nl_of_p02 only) → runs/<id>/p02/attempt_0.mzn
+```
+
+Do **not** ask the LLM to segment the file. Do **not** batch multiple seeds into one prompt.
 
 **Completeness test (include in the headline run):**
 
