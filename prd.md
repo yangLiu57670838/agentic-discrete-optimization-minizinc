@@ -15,6 +15,33 @@ v1 is a **small author-written case study**. You write **natural-language proble
 
 **Audience:** GitHub portfolio (AI engineer jobs) and a short research write-up (PhD application).
 
+### Why use an LLM (purpose of this project)
+
+Seeds are structured natural language (decisions, rules, numeric data, satisfy or min/max). That is **not** already a MiniZinc model. The gap the LLM must cross is **modelling judgment + language**, not “add math symbols” to the prose.
+
+| Gap | What the LLM must do |
+|---|---|
+| **Modelling judgment** | Invent the formal model for whatever the seed states: decision variables and indices; how stated rules compose into equations or inequalities; how the objective (or satisfaction goal) is defined. Two models can both compile and still encode different problems. |
+| **Language** | Emit valid, executable MiniZinc (types, syntax, `solve`, data inlined in one `.mzn`). |
+
+So the research object is: **can an LLM act as a modeller** from NL → `.mzn`, not merely as a syntax converter. Compile/solve (MiniZinc oracle) checks executability; **you** judge faithfulness (RQ3–RQ4) against that seed’s NL. Repair may fix language/compile failures without fixing wrong modelling.
+
+**Illustrative failure (correct syntax, wrong design).** Suppose the NL says: assign each of three jobs to one of two machines; every job must be assigned; minimize total assignment cost.
+
+Valid MiniZinc that still models the **wrong** problem:
+
+```minizinc
+% NL required: every job assigned. This model allows a job to go unassigned (x = 0).
+array[1..3] of var 0..2: x;   % 0 = none, 1..2 = machine
+array[1..3, 1..2] of int: c = [| 5, 8 | 4, 3 | 6, 7 |];
+var int: cost = sum(j in 1..3)(
+  if x[j] = 0 then 0 else c[j, x[j]] endif
+);
+solve minimize cost;
+```
+
+This can compile and return `OPTIMAL_SOLUTION` with `cost = 0` (assign nothing). Language/oracle look fine; modelling judgment failed. The seed’s “every job must be assigned” was never encoded.
+
 ---
 
 ## 2. What ships in 2 weeks
