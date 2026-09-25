@@ -1,1 +1,27 @@
-# Requested run defaults (LLM, solver, K, time limits); resolved values go in run_config.json.
+# Requested run defaults; resolved values go in runs/<id>/run_config.json.
+
+llm_cheap:
+  provider: openai
+  model_id: gpt-4.1-nano
+  temperature: 0.0
+  max_tokens: 4096
+
+llm_expensive:
+  provider: openai
+  model_id: gpt-4.1
+  temperature: 0.0
+  max_tokens: 4096
+
+protocol:
+  generate_once_per_model: true
+  models:
+    - cheap
+    - expensive
+  output: single_mzn
+
+minizinc:
+  solver_id: gecode
+  time_limit_s: 10
+
+limits:
+  wall_clock_s_per_seed: 300

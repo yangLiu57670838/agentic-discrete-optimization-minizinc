@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version as pkg_version
@@ -58,7 +59,8 @@ class SolveResult:
     objective: Optional[float] = None
     solution: Optional[dict[str, Any]] = None
     raw_status: Optional[str] = None
-    statistics: dict[str, Any] = field(default_factory=dict) # statistics of the solve performance, really important for the performance evaluation
+    statistics: dict[str, Any] = field(default_factory=dict)
+    solve_time_s: Optional[float] = None
 
     @property
     def compile_success(self) -> bool:
@@ -81,6 +83,7 @@ class SolveResult:
             "diagnostics": self.diagnostics,
             "objective": self.objective,
             "raw_status": self.raw_status,
+            "solve_time_s": self.solve_time_s,
         }
 
 
@@ -293,18 +296,22 @@ def compile_and_solve(
             f"MiniZinc solver '{solver_id}' not found. {exc}"
         ) from exc
 
+    started = time.monotonic()
     try:
         model = Model(path)
         instance = Instance(solver, model)
         result = instance.solve(timeout=timedelta(seconds=time_limit_s))
     except MiniZincError as exc:
+        elapsed = time.monotonic() - started
         outcome = _classify_minizinc_error(exc)
         return SolveResult(
             outcome=outcome,
             diagnostics=_format_exception(exc),
             raw_status=type(exc).__name__,
+            solve_time_s=elapsed,
         )
     except Exception as exc:
+        elapsed = time.monotonic() - started
         # Unexpected failure after flattening is treated as solver-side.
         text = _format_exception(exc)
         lower = text.lower()
@@ -313,13 +320,16 @@ def compile_and_solve(
                 outcome=OUTCOME_TIMEOUT_UNKNOWN,
                 diagnostics=text,
                 raw_status=type(exc).__name__,
+                solve_time_s=elapsed,
             )
         return SolveResult(
             outcome=OUTCOME_SOLVER_ERROR,
             diagnostics=text,
             raw_status=type(exc).__name__,
+            solve_time_s=elapsed,
         )
 
+    elapsed = time.monotonic() - started
     status = getattr(result, "status", None)
     outcome = _outcome_from_status(status)
     stats = getattr(result, "statistics", None) or {}
@@ -330,4 +340,5 @@ def compile_and_solve(
         solution=_extract_solution(result),
         raw_status=getattr(status, "name", str(status)),
         statistics=dict(stats) if isinstance(stats, dict) else {},
+        solve_time_s=elapsed,
     )

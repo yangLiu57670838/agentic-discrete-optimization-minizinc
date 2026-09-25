@@ -1,1 +1,8 @@
-# Derive compile_success, solver_success, repair_success, and related flags from outcomes.
+# Derive comparison helpers for cheap vs expensive runs.
+
+from __future__ import annotations
+
+# Kept for import stability; comparison logic lives in schemas.results.
+from ado_mzn.schemas.results import compare_runs
+
+__all__ = ["compare_runs"]

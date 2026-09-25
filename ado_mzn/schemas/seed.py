@@ -15,7 +15,7 @@ _MINIZINC_MARKERS = (
     "solve satisfy",
     "solve minimize",
     "solve maximize",
-    "include \"",
+    'include "',
 )
 
 _HEADING_RE = re.compile(
@@ -39,6 +39,10 @@ _OBJECTIVE_FIELD_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 _HAS_DIGIT_RE = re.compile(r"\d")
+_INSTANCE_NAME_RE = re.compile(
+    r"^(?:instance(?:\s+data)?|instance)\s*(?P<iid>\w+)?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -61,20 +65,33 @@ class Seed:
     family: str
     type: str
     problem: str
-    instance_data: str = ""
+    instances: dict[str, str] = field(default_factory=dict)
     constraints: dict[str, str] = field(default_factory=dict)
     objective: Optional[SeedObjective] = None
     raw_heading: str = ""
+
+    @property
+    def instance_data(self) -> str:
+        """First instance body (back-compat)."""
+        if not self.instances:
+            return ""
+        first = next(iter(self.instances.values()))
+        return first
+
+    @property
+    def instance_ids(self) -> list[str]:
+        return list(self.instances.keys())
 
     @property
     def is_complete(self) -> bool:
         """PRD completeness test for the headline run."""
         if not self.id or not self.problem.strip():
             return False
-        if self._contains_minizinc(self.problem) or self._contains_minizinc(
-            self.instance_data
-        ):
+        if self._contains_minizinc(self.problem):
             return False
+        for body in self.instances.values():
+            if self._contains_minizinc(body):
+                return False
         if self._contains_minizinc(" ".join(self.constraints.values())):
             return False
         has_constraints = bool(self.constraints) or self._mentions_rules(
@@ -94,8 +111,8 @@ class Seed:
             return False
         return True
 
-    def nl_for_prompt(self) -> str:
-        """Single-seed NL text for LLM generate/repair (no other seeds)."""
+    def nl_for_prompt(self, instance_id: Optional[str] = None) -> str:
+        """NL text for one problem + one instance (LLM never sees other seeds)."""
         lines = [
             f"# {self.id} — {self.title}",
             f"- id: {self.id}",
@@ -106,8 +123,9 @@ class Seed:
             "",
             self.problem.strip(),
         ]
-        if self.instance_data.strip():
-            lines.extend(["", "### Instance data", "", self.instance_data.strip()])
+        iid, body = self._resolve_instance(instance_id)
+        if body.strip():
+            lines.extend(["", f"### Instance {iid}", "", body.strip()])
         if self.constraints:
             lines.extend(["", "### Constraint inventory", ""])
             for cid in sorted(self.constraints, key=_constraint_sort_key):
@@ -131,7 +149,7 @@ class Seed:
             "family": self.family,
             "type": self.type,
             "problem": self.problem,
-            "instance_data": self.instance_data,
+            "instances": dict(self.instances),
             "constraints": dict(self.constraints),
             "objective": None
             if self.objective is None
@@ -139,9 +157,20 @@ class Seed:
             "is_complete": self.is_complete,
         }
 
+    def _resolve_instance(
+        self, instance_id: Optional[str]
+    ) -> tuple[str, str]:
+        if not self.instances:
+            return ("i01", "")
+        if instance_id and instance_id in self.instances:
+            return (instance_id, self.instances[instance_id])
+        first_id = next(iter(self.instances))
+        return (first_id, self.instances[first_id])
+
     def _has_numeric_data(self) -> bool:
-        if _HAS_DIGIT_RE.search(self.instance_data):
-            return True
+        for body in self.instances.values():
+            if _HAS_DIGIT_RE.search(body):
+                return True
         return bool(_HAS_DIGIT_RE.search(self.problem))
 
     @staticmethod
@@ -151,7 +180,6 @@ class Seed:
 
     @staticmethod
     def _mentions_rules(problem: str) -> bool:
-        # Fallback when optional Constraint inventory is omitted.
         lower = problem.lower()
         cues = ("must ", "cannot ", "at most", "at least", "each ", "every ")
         return any(cue in lower for cue in cues)
@@ -179,7 +207,6 @@ def _split_heading_blocks(text: str) -> list[tuple[str, str]]:
     return blocks
 
 
-# parse the sections of the body in
 def _parse_sections(body: str) -> dict[str, str]:
     matches = list(_SECTION_RE.finditer(body))
     if not matches:
@@ -193,8 +220,29 @@ def _parse_sections(body: str) -> dict[str, str]:
     return sections
 
 
+def _parse_instances(sections: dict[str, str]) -> dict[str, str]:
+    """Collect instance bodies; 'Instance data' → i01."""
+    instances: dict[str, str] = {}
+    auto_n = 1
+    for name, body in sections.items():
+        match = _INSTANCE_NAME_RE.match(name.strip())
+        if not match:
+            continue
+        raw_id = match.group("iid")
+        if raw_id and raw_id.lower() != "data":
+            iid = raw_id.lower()
+        else:
+            iid = f"i{auto_n:02d}"
+            auto_n += 1
+        # Avoid clobbering if author mixes Instance data and Instance i01.
+        if iid in instances:
+            iid = f"i{auto_n:02d}"
+            auto_n += 1
+        instances[iid] = body.strip()
+    return instances
+
+
 def _parse_meta(body: str) -> dict[str, str]:
-    # Metadata bullets sit before the first ### section.
     first_section = _SECTION_RE.search(body)
     header = body[: first_section.start()] if first_section else body
     meta: dict[str, str] = {}
@@ -222,7 +270,6 @@ def _parse_objective(section: str) -> Optional[SeedObjective]:
 
 
 def _title_id_fallback(title: str) -> str:
-    # "## p01 — PowerGen ..." → p01
     token = title.split("—", 1)[0].split("-", 1)[0].strip()
     return token or title.strip()
 
@@ -233,7 +280,7 @@ def parse_seed_block(title: str, body: str) -> Seed:
     sections = _parse_sections(body)
 
     problem = sections.get("problem", "").strip()
-    instance_data = sections.get("instance data", "").strip()
+    instances = _parse_instances(sections)
     constraints = _parse_constraints(sections.get("constraint inventory", ""))
     objective = _parse_objective(sections.get("objective", ""))
 
@@ -250,7 +297,7 @@ def parse_seed_block(title: str, body: str) -> Seed:
         family=meta.get("family", ""),
         type=meta.get("type", ""),
         problem=problem,
-        instance_data=instance_data,
+        instances=instances,
         constraints=constraints,
         objective=objective,
         raw_heading=title,
@@ -261,7 +308,7 @@ def parse_seed_markdown(text: str) -> list[Seed]:
     """Parse all ## seeds from markdown text (complete and incomplete)."""
     seeds: list[Seed] = []
     for title, body in _split_heading_blocks(text):
-        seeds.append(parse_seed_block(title, body)) # split 
+        seeds.append(parse_seed_block(title, body))
     return seeds
 
 

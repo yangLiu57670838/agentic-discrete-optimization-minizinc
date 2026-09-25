@@ -1,6 +1,6 @@
-# Agentic Discrete Optimisation — NL → MiniZinc
+# Cheap vs expensive LLM — NL → MiniZinc comparison
 
-NL problems → LLM MiniZinc → MiniZinc oracle (compile/solve).
+5 NL discrete optimisation seeds → two models each write `.mzn` → same MiniZinc solver → compare encodings and solve time → report.
 
 ## Steps
 
@@ -19,14 +19,29 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Check the toolchain (no LLM; run after install and before any agent work):
+4. Check the toolchain (no LLM):
 
 ```bash
 python -m ado_mzn check-minizinc
 ```
 
-5. Run the agent (not implemented yet):
+5. Set your OpenAI API key, then run the dual-model experiment:
 
 ```bash
+export OPENAI_API_KEY=your-key-here
 python -m ado_mzn run --seed data/seed_problems.md --config configs/default.yaml
 ```
+
+Default models (edit `configs/default.yaml`):
+
+- **cheap:** `gpt-4.1-nano`
+- **expensive:** `gpt-4.1`
+- **solver:** Gecode, same `time_limit_s` for both
+
+6. Rebuild a report from an existing run (optional):
+
+```bash
+python -m ado_mzn report runs/<run_id>
+```
+
+Outputs: `runs/<run_id>/` (`cheap.mzn` / `expensive.mzn` per seed×instance, `results.json`) and `reports/<run_id>.md`.

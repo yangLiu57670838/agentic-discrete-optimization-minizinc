@@ -1,2 +1,4 @@
 # Python dependencies for the NL-to-MiniZinc agent and MiniZinc Python oracle.
 minizinc>=0.9
+openai>=1.0
+PyYAML>=6.0

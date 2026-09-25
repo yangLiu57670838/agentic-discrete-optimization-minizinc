@@ -1,1 +1,1 @@
-# Package root for the NL-to-MiniZinc agent and evaluation harness.
+# Cheap vs expensive LLM — NL → MiniZinc comparison harness.
