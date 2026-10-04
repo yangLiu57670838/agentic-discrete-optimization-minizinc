@@ -1,9 +1,9 @@
 # Product Requirements Document
 
 **Project:** Agentic Discrete Optimisation — NL → MiniZinc  
-**Status:** Draft v0.11 (2-week scope)  
+**Status:** Draft v0.12 (2-week scope)  
 **Deadline:** 2 weeks from start  
-**Date:** 26 August 2026
+**Date:** 4 October 2026
 
 ---
 
@@ -11,7 +11,7 @@
 
 > How effectively can an LLM-based agent translate natural-language discrete optimisation problems into executable MiniZinc models?
 
-v1 is a **small author-written case study**. You write **natural-language problems only** — no MiniZinc. Seed **count is not fixed** (a handful is fine; 4–9 is a plausible range, not a quota). The LLM is the only source of `.mzn` files. Faithfulness beats compilation: a model that compiles but solves the wrong problem is a failure.
+v1 is a **one-problem case study**. You write **one** natural-language seed (`p01` in `data/seed_problems.md`) — no MiniZinc. Extra seeds are out of scope. The LLM is the only source of the seed `.mzn`. Faithfulness beats compilation: a model that compiles but solves the wrong problem is a failure.
 
 **Audience:** GitHub portfolio (AI engineer jobs) and a short research write-up (PhD application).
 
@@ -19,26 +19,26 @@ v1 is a **small author-written case study**. You write **natural-language proble
 
 ## 2. What ships in 2 weeks
 
-1. Author-written **natural-language** problems in `data/seed_problems.md` (ids `p01`, `p02`, …). **N is whatever is complete at freeze.** **No gold `.mzn`.** You do not write MiniZinc.
-2. An agent: NL (including any numbers in the seed) → **one executable `.mzn`**. That is the only MiniZinc in the experiment besides a tiny **bundled smoke file** used to test the toolchain.
+1. **One** author-written natural-language seed: `p01` in `data/seed_problems.md`. **N = 1.** **No gold `.mzn`.** You do not write MiniZinc.
+2. An agent: that NL (including its numbers) → **one executable `.mzn`**. That is the only MiniZinc in the experiment besides a tiny **bundled smoke file** used to test the toolchain.
 3. Local **MiniZinc Python** as the oracle (compile + solve). Default solver: **Gecode**, **10s** per solve.
 4. Repair up to **K=3** only on `COMPILE_ERROR` or `SOLVER_ERROR`. Do **not** repair `TIMEOUT` / `UNKNOWN` or valid termination (`SATISFIED` / `OPTIMAL_SOLUTION` / `UNSATISFIABLE`).
-5. One LLM. **Generate attempt 0 exactly once per seed.** K=0 scores that `.mzn`. K=3 continues from the **same** attempt-0 `.mzn` (up to three repairs). Do not regenerate to produce the K=0 vs K=3 comparison.
+5. One LLM. **Generate attempt 0 exactly once for p01.** K=0 scores that `.mzn`. K=3 continues from the **same** attempt-0 `.mzn` (up to three repairs). Do not regenerate to produce the K=0 vs K=3 comparison.
 6. A Markdown report from the run (`reports/<run_id>.md`).
 7. **`run_config.json`** for every run: the actual LLM, MiniZinc, solver, limits, and seed list used (see §5.2).
 8. README: how to install MiniZinc, set the API key, `check-minizinc`, run the agent.
 
-If time slips, **cut in this order:** polish → report prose → extra incomplete NL seeds → skip the repair loop (keep attempt 0 / K=0). Do **not** cut: MiniZinc oracle, per-instance metrics, at least one complete NL seed so the agent can run. Never “compare” K=0 and K=3 from two different generations.
+If time slips, **cut in this order:** polish → report prose → skip the repair loop (keep attempt 0 / K=0). Do **not** cut: MiniZinc oracle, metrics on p01, the one complete NL seed. Never “compare” K=0 and K=3 from two different generations.
 
 ---
 
 ## 3. Out of scope
 
-UI/SaaS, extra solvers, fine-tuning, a fixed seed quota, second LLM, compile-only ablation, LLM-as-judge, formal equivalence proofs, MiniZinc Challenge, a second `generate` call used as a fake K=0 baseline, **agent-emitted `.dzn`**, **author-written MiniZinc / gold `.mzn` for seeds**.
+UI/SaaS, extra solvers, fine-tuning, a second seed (`p02+`), second LLM, compile-only ablation, LLM-as-judge, formal equivalence proofs, MiniZinc Challenge, a second `generate` call used as a fake K=0 baseline, **agent-emitted `.dzn`**, **author-written MiniZinc / gold `.mzn`**.
 
 ---
 
-## 4. Research questions (answer per seed, not as a %)
+## 4. Research questions (answer for **p01**, not as a %)
 
 | ID | Question |
 |---|---|
@@ -47,20 +47,20 @@ UI/SaaS, extra solvers, fine-tuning, a fixed seed quota, second LLM, compile-onl
 | RQ3 | Are the stated constraints present? Is the objective the right min/max and quantity? |
 | RQ4 | Which outcome bucket occurred (compile error, solver error, timeout/unknown, valid termination), and what modelling mistakes remain? |
 
-**Hypotheses (light):** single-shot will fail or be shallow on at least one seed; repair may fix compile but not faithfulness.
+**Hypotheses (light):** single-shot on p01 will fail to compile, or will compile a shallow/wrong model; repair may fix compile but not faithfulness.
 
 ---
 
 ## 5. Agent
 
-**Paired K=0 / K=3 (required).** Per seed, in one run:
+**Paired K=0 / K=3 (required).** For p01, in one run:
 
 1. **Generate attempt 0 exactly once** (`LLM.generate`). Save **one** `attempt_0.mzn`. Do not sample again for this seed in the headline run. Inline parameters in that file; do not emit `.dzn`.
 2. Compile/solve that `.mzn`. That row is **K=0**.
 3. **K=3** starts from that exact `.mzn`. Repair **only** while the latest outcome is `COMPILE_ERROR` or `SOLVER_ERROR`, up to three times (always re-attach the original NL). If attempt 0 is `TIMEOUT` / `UNKNOWN` or valid termination, do **not** repair; K=3 copies K=0 (`repairs_used = 0`).
 
 ```
-model_0 = LLM.generate(nl)               # once per seed; one .mzn, data inlined
+model_0 = LLM.generate(nl)               # once for p01; one .mzn, data inlined
 save attempt_0.mzn
 result_0 = minizinc_python.solve(attempt_0.mzn, solver=gecode, t=10s)
 # K=0 := (model_0, result_0)
@@ -77,9 +77,8 @@ while result in {COMPILE_ERROR, SOLVER_ERROR} and repairs_used < 3:
 - LLM never grades compile/solve. Log `attempt_0.mzn`, each repaired `.mzn`, diagnostics.
 - If the LLM also dumps a `.dzn`, **ignore it**. Only the `.mzn` is compiled.
 - Prompt the model to put sets, parameters, constraints, and `solve` in **a single `.mzn`**.
-- Wall clock cap: **180s** per seed including LLM. API key via env only; never put the key in `run_config`.
-- Seeds contain **no MiniZinc**. The agent prompt is the NL seed only.
-- Multiple problems in one seed file are **split by Python**, not by the LLM (see §7).
+- Wall clock cap: **180s** for p01 including LLM. API key via env only; never put the key in `run_config`.
+- The seed contains **no MiniZinc**. The agent prompt is the p01 NL only.
 
 **CLI:**
 
@@ -125,7 +124,7 @@ Record **what actually ran**. Write `runs/<id>/run_config.json` at the start of 
   "started_at": "2026-08-26T12:00:00Z",
   "config_path": "configs/default.yaml",
   "seed_file": "data/seed_problems.md",
-  "included_seed_ids": ["p01", "p02"],
+  "included_seed_ids": ["p01"],
   "protocol": {
     "generate_once": true,
     "k_max": 3,
@@ -156,11 +155,11 @@ Record **what actually ran**. Write `runs/<id>/run_config.json` at the start of 
 
 `temperature` / `model_id` / MiniZinc `version` in the report must match this file. If a field could not be probed, store `null` and fail the run only for MiniZinc missing — still write the rest so the experiment is inspectable.
 
-`included_seed_ids` is the set that actually ran, not every heading in the markdown.
+`included_seed_ids` is `["p01"]` for v1.
 
 ---
 
-## 6. Metrics (per seed; K=0 and K=3 from one generation)
+## 6. Metrics (p01; K=0 and K=3 from one generation)
 
 K=0 = `attempt_0.mzn` after one compile/solve. K=3 = that same file after up to three in-place repairs (or a copy of K=0 if no repair ran).
 
@@ -173,64 +172,36 @@ K=0 = `attempt_0.mzn` after one compile/solve. K=3 = that same file after up to 
 | **Objective** | Human: right sense + quantity + linked to decisions, as stated in the NL (`NA` if SAT-only) |
 | **Review 1–5** | 1 unrelated … 5 reasonable first draft. Judge **NL vs generated `.mzn` + status** only. Score attempt 0; score K=3 if the `.mzn` changed |
 
-Do not headline a success **rate** unless N is large enough to mean something; for a handful of seeds, report **per instance**. Solver success ≠ correct model.
+N=1: report the **p01 case**, not a success rate. Solver success ≠ correct model.
 
 **Table columns:** outcome @0 / @K=3, compile @0 / @K=3, solver_success @0 / @K=3, repair yes/no/NA, repairs_used, constraints (and missing ids) @0 and @K=3 if different, objective, review.
 
 ---
 
-## 7. Seeds (natural language only; count not fixed)
+## 7. Seed (one natural-language problem)
 
-**File:** `data/seed_problems.md` — one `##` heading per problem. The harness runs **every complete heading**.
+**N = 1.** File: `data/seed_problems.md` with a single heading, **`## p01`**. v1 does not add `p02`.
 
-**You write English (or other NL) only.** You do **not** write `var`, `constraint`, `solve`, or any other MiniZinc. There is **no** `gold.mzn` per seed. The first `.mzn` for a seed is `attempt_0.mzn` from the LLM.
+**You write English only.** You do **not** write `var`, `constraint`, `solve`, or any other MiniZinc. There is **no** `gold.mzn`. The first `.mzn` is `runs/<id>/p01/attempt_0.mzn` from the LLM.
 
-A bundled smoke model (`ado_mzn/toolchain/fixtures/smoke.mzn`) is **not** a seed. It only proves the compiler works.
+A bundled smoke model (`ado_mzn/toolchain/fixtures/smoke.mzn`) is **not** the seed. It only proves the compiler works.
 
-You may hand-write **several** problems (4–9 is a reasonable range if they are all complete). **N = number of NL seeds that pass the completeness test at freeze.**
+`ado_mzn/schemas/seed.py` parses `## p01` into one record. The runner and LLM see **only that NL**.
 
-### Split plan (Python harness, not the LLM)
-
-One markdown file may hold many problems. **Splitting is entirely the harness’s job.**
-
-| Who | Responsibility |
-|---|---|
-| **Author** | Write each problem under its own `## p0N — …` heading in `data/seed_problems.md`. |
-| **`ado_mzn/schemas/seed.py`** | Parse the file: split on `##` headings → a list of seed records (`id`, family, type, problem text, instance data, constraints, objective). Incomplete headings are omitted from the headline run. |
-| **`ado_mzn/eval/runner.py`** | Loop **one seed at a time**. For each seed: generate once → compile/solve → optional repair → write that seed’s artefacts. |
-| **LLM** | Sees **only the current seed’s NL** in each `generate` / `repair` call. Never receives the whole seed file or other seeds’ text. |
-
-```
-seed_problems.md
-  ## p01 ...
-  ## p02 ...
-        │
-        ▼  seed.py (split + parse)
-  [Seed(p01), Seed(p02), ...]
-        │
-        ▼  runner.py (for each seed)
-  LLM.generate(nl_of_p01 only) → runs/<id>/p01/attempt_0.mzn
-  LLM.generate(nl_of_p02 only) → runs/<id>/p02/attempt_0.mzn
-```
-
-Do **not** ask the LLM to segment the file. Do **not** batch multiple seeds into one prompt.
-
-**Completeness test (include in the headline run):**
+**Completeness test (p01 must pass):**
 
 - Clear decisions (what is chosen)
-- Constraints stated in the problem text (or an optional English C1, C2, … list — still not MiniZinc)
+- Constraints stated in the problem text (or English C1, C2, … — still not MiniZinc)
 - SAT **or** min/max + quantity in words
 - **Numeric data** in the prose and/or `### Instance data`
-- **No MiniZinc keywords** in the seed (`var int`, `constraint`, `solve minimize`, …)
+- **No MiniZinc keywords** (`var int`, `constraint`, `solve minimize`, …)
 
-Prefer more than one family if you have several seeds. Variety is nice, not a quota.
-
-**Seed schema (repeat `## p02`, … as needed):**
+**Seed schema (v1 uses this one problem only):**
 
 ```markdown
 ## p01 — Short title
 - id: p01
-- family: assignment
+- family: capacity_expansion
 - type: optimisation
 
 ### Problem
@@ -242,15 +213,14 @@ Natural-language statement. Say what to choose, the rules, and min/max what.
 Numbers the agent must inline into its `.mzn`.
 
 ### Constraint inventory   # optional, plain English
-- C1: Each job is given to exactly one machine
-- C2: Jobs on the same machine do not overlap
+- C1: ...
 
 ### Objective
 - sense: minimize
-- quantity: total cost
+- quantity: total building cost
 ```
 
-No `### Gold` section.
+No `### Gold` section. The current repo seed (PowerGen capacity expansion) is the intended p01.
 
 ---
 
@@ -259,11 +229,11 @@ No `### Gold` section.
 ```
 ado_mzn/          # agent, minizinc wrapper, eval, report
 ado_mzn/toolchain/fixtures/smoke.mzn   # bundled toolchain test; not a seed
-data/seed_problems.md              # NL seeds only
+data/seed_problems.md              # one NL seed: p01
 configs/default.yaml
 runs/<id>/run_config.json
 runs/<id>/results.json
-runs/<id>/<seed>/attempt_0.mzn     # LLM MiniZinc
+runs/<id>/p01/attempt_0.mzn        # LLM MiniZinc for p01
 reports/
 prd.md
 README.md
@@ -276,25 +246,25 @@ README.md
 | Days | Do | Done when |
 |---|---|---|
 | **1–2** | Install MiniZinc; wrapper; `check-minizinc` on bundled smoke `.mzn` | smoke model reaches valid termination, **no LLM** |
-| **3–4** | Write complete **NL** seeds in `data/seed_problems.md`; parser | ≥1 complete heading |
-| **5–7** | LLM generate **once** per tried seed; save `attempt_0.mzn`; optional repair | at least one generated `.mzn` |
-| **8–9** | Full included set; `run_config.json` + paired K=0/K=3 | one paired row per seed |
-| **10–11** | You score NL vs generated `.mzn` (constraints, objective, review) | every included seed reviewed |
+| **3–4** | Finish **p01** NL in `data/seed_problems.md`; parser | one complete heading |
+| **5–7** | LLM generate **once** for p01; save `attempt_0.mzn`; optional repair | p01 `.mzn` exists |
+| **8–9** | `run_config.json` + paired K=0/K=3 for p01 | one paired result row |
+| **10–11** | You score NL vs generated `.mzn` (constraints, objective, review) | p01 reviewed |
 | **12–13** | `reports/<id>.md` + README | clone-and-run documented |
-| **14** | Freeze included NL | tag v1 |
+| **14** | Freeze p01 NL | tag v1 |
 
-Slip buffer: **drop incomplete NL seeds**, not features. Do not delay the agent waiting for a particular N.
+Slip buffer: skip repair, not the one seed.
 
 ---
 
 ## 10. Done-when (v1)
 
 - [ ] `check-minizinc` passes on the bundled smoke model (no LLM, no seed MiniZinc).
-- [ ] Each `run` writes `run_config.json` (resolved LLM id, MiniZinc version, solver, limits, included seed ids) before generation.
-- [ ] `run` generates each included seed **once**, saves `attempt_0.mzn`, and writes K=0 + K=3 into `results.json`.
+- [ ] Each `run` writes `run_config.json` (resolved LLM id, MiniZinc version, solver, limits, `included_seed_ids: ["p01"]`) before generation.
+- [ ] `run` generates **p01 once**, saves `attempt_0.mzn`, and writes K=0 + K=3 into `results.json`.
 - [ ] Report Method section is generated from `run_config`, not handwritten model names.
-- [ ] All six metrics filled per included seed (you are the reviewer, using the NL as the spec).
-- [ ] `reports/<id>.md` exists: method, per-instance cases, limitations (N = included count, **author wrote NL only**, LLM wrote all seed MiniZinc).
+- [ ] All six metrics filled for p01 (you are the reviewer, using the NL as the spec).
+- [ ] `reports/<id>.md` exists: method, **p01 case study**, limitations (N=1, **author wrote NL only**, LLM wrote the MiniZinc).
 - [ ] README: MiniZinc install, env var, `check-minizinc`, `run`.
 - [ ] Negative results are acceptable.
 
@@ -304,10 +274,10 @@ Slip buffer: **drop incomplete NL seeds**, not features. Do not delay the agent 
 
 1. Question  
 2. Method — copy from `run_config.json` (LLM `model_id`, MiniZinc version, Gecode, 10s, generate once, K=3, single `.mzn`)  
-3. Seeds (list ids; N = count included, not a pre-set target)  
-4. Per-instance results (not a rate)  
+3. Seed p01 (PowerGen / the one NL problem)  
+4. p01 results: K=0 vs K=3 (not a rate)  
 5. Failure notes (only what occurred)  
-6. Limitations (small N, NL-only seeds, no reference MiniZinc, human faithfulness) and next step
+6. Limitations (N=1, NL-only, no reference MiniZinc, human faithfulness) and next step
 
 ---
 
@@ -318,13 +288,14 @@ Slip buffer: **drop incomplete NL seeds**, not features. Do not delay the agent 
 | MiniZinc not installed | Day 1 `check-minizinc`; README |
 | Smoke fixture fails | Fix wrapper/install before any LLM |
 | Repair deletes constraints | Always re-attach NL |
-| Treating small N as a win rate | Per-instance narrative |
+| Treating N=1 as a general LLM rate | Write a case study only |
 | Scope creep | No second LLM, no UI, **do not write seed gold `.mzn`** |
 | Independent K=0 reroll | K=3 must load saved `attempt_0.mzn` |
 | Agent emits `.mzn` + `.dzn` | Compile only the `.mzn` |
 | Missing MiniZinc version / model id | Require `run_config.json` |
 | Config yaml ≠ what ran | Store resolved values after probe |
-| Incomplete NL (no numbers / no objective) | Omit from headline run |
+| Incomplete p01 NL (no numbers / no objective) | Do not run the agent until p01 is complete |
+| Adding more seeds mid-sprint | Out of scope for v1 |
 
 ---
 
@@ -372,4 +343,4 @@ Pip package `minizinc` does **not** include the compiler. Install MiniZinc local
 
 ---
 
-**Brief:** In two weeks, write natural-language problems only, prove MiniZinc with a bundled smoke model (no LLM), then generate one `.mzn` per seed, pair K=0/K=3, score compile/solve/repair plus human faithfulness against the NL, and ship `run_config.json` plus a short report.
+**Brief:** In two weeks, write **one** NL seed (p01), prove MiniZinc with a bundled smoke model (no LLM), generate one `.mzn` for that seed, pair K=0/K=3, score compile/solve/repair plus human faithfulness against the NL, and ship `run_config.json` plus a short p01 report.
