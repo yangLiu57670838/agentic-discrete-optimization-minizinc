@@ -1,1 +1,1 @@
-# Run orchestration: write run_config, score K=0 vs K=3 per seed, collect metrics.
+# Run orchestration: write run_config, generate with cheap + expensive models, solve, compare.

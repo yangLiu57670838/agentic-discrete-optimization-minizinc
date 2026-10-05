@@ -1,207 +1,210 @@
 # Product Requirements Document
 
-**Project:** Agentic Discrete Optimisation — NL → MiniZinc  
-**Status:** Draft v0.12 (2-week scope)  
+**Project:** Agentic Discrete Optimisation — NL → MiniZinc, cheap vs expensive LLM  
+**Status:** Draft v0.14 (2-week scope)  
 **Deadline:** 2 weeks from start  
-**Date:** 4 October 2026
+**Date:** 6 October 2026
 
 ---
 
 ## 1. Question
 
-> How effectively can an LLM-based agent translate natural-language discrete optimisation problems into executable MiniZinc models?
+> Given the same natural-language discrete optimisation problem and the same prompt, how do a **cheap** and an **expensive** LLM differ in the MiniZinc models they write?
 
-v1 is a **one-problem case study**. You write **one** natural-language seed (`p01` in `data/seed_problems.md`) — no MiniZinc. Extra seeds are out of scope. The LLM is the only source of the seed `.mzn`. Faithfulness beats compilation: a model that compiles but solves the wrong problem is a failure.
+"Differ" means four things, all judged against the natural-language (NL) seed:
+
+1. **Runs** — does the `.mzn` compile, and does the solver terminate validly?
+2. **Faithful** — are the stated constraints and the objective actually modelled? (human review)
+3. **Result quality** — under the same solver and time limit, which model reaches the better objective?
+4. **Speed** — when both finish the search, which model's encoding solves faster?
+
+**Core research target:** compare the two models on the same seed. Faithfulness beats everything: a model that compiles and solves fast but solves the wrong problem is a failure, and its objective and time do not count.
 
 **Audience:** GitHub portfolio (AI engineer jobs) and a short research write-up (PhD application).
 
 ---
 
-## 2. What ships in 2 weeks
+## 2. Why an LLM at all
 
-1. **One** author-written natural-language seed: `p01` in `data/seed_problems.md`. **N = 1.** **No gold `.mzn`.** You do not write MiniZinc.
-2. An agent: that NL (including its numbers) → **one executable `.mzn`**. That is the only MiniZinc in the experiment besides a tiny **bundled smoke file** used to test the toolchain.
-3. Local **MiniZinc Python** as the oracle (compile + solve). Default solver: **Gecode**, **10s** per solve.
-4. Repair up to **K=3** only on `COMPILE_ERROR` or `SOLVER_ERROR`. Do **not** repair `TIMEOUT` / `UNKNOWN` or valid termination (`SATISFIED` / `OPTIMAL_SOLUTION` / `UNSATISFIABLE`).
-5. One LLM. **Generate attempt 0 exactly once for p01.** K=0 scores that `.mzn`. K=3 continues from the **same** attempt-0 `.mzn` (up to three repairs). Do not regenerate to produce the K=0 vs K=3 comparison.
-6. A Markdown report from the run (`reports/<run_id>.md`).
-7. **`run_config.json`** for every run: the actual LLM, MiniZinc, solver, limits, and seed list used (see §5.2).
-8. README: how to install MiniZinc, set the API key, `check-minizinc`, run the agent.
+An NL seed already lists decisions, rules, and an objective, so it can look like MiniZinc just needs "math syntax". The gap is **modelling judgment**: choosing decision variables, linking them to the rules, encoding soft penalties, and wiring the objective to the decisions. Syntax can be perfect while the design is wrong.
 
-If time slips, **cut in this order:** polish → report prose → skip the repair loop (keep attempt 0 / K=0). Do **not** cut: MiniZinc oracle, metrics on p01, the one complete NL seed. Never “compare” K=0 and K=3 from two different generations.
+Example: the NL says "an employee works a weekend if they work *at least one* of its two days". A model that writes `works_weekend = x[sat] /\ x[sun]` compiles and solves, but counts only full weekends, so the weekend limit is too loose. The solver happily returns a "better" objective for the wrong problem. That is why the human review gates the objective and time comparison.
+
+The research asks whether paying for a stronger model buys better modelling judgment, not just fewer syntax errors.
 
 ---
 
-## 3. Out of scope
+## 3. What ships in 2 weeks
 
-UI/SaaS, extra solvers, fine-tuning, a second seed (`p02+`), second LLM, compile-only ablation, LLM-as-judge, formal equivalence proofs, MiniZinc Challenge, a second `generate` call used as a fake K=0 baseline, **agent-emitted `.dzn`**, **author-written MiniZinc / gold `.mzn`**.
+1. **One** author-written NL seed: `p01` in `data/seed_problems.md` (hospital staff rostering and surgery scheduling, instance A). **No gold `.mzn`.** You do not write MiniZinc.
+2. **Two LLMs**, set in `configs/default.yaml`:
+   - **cheap:** `gpt-4.1-nano`
+   - **expensive:** `gpt-4.1`
+3. Each model **generates exactly one `.mzn` per seed** from the **same prompt** at the **same temperature (0.0)** and token budget. No repair, no resampling.
+4. Local **MiniZinc Python** as the oracle. Every generated `.mzn` is compiled and solved with the **same solver (Gecode)** and the **same time limit (10s)** on the same machine, one after another.
+5. `run_config.json` for every run: requested and API-reported model ids, MiniZinc version, solver, limits, prompt hash, git commit (§6.2).
+6. `results.json`: per seed, both models' outcome, objective, solve time, LLM latency and tokens, plus the solver-side comparison (§7).
+7. `review.yaml`: a template you fill in by hand (constraints missing, objective correct, 1–5 score per model).
+8. `reports/<run_id>.md`, re-rendered after you fill `review.yaml`.
+9. README: install MiniZinc, set the API key, `check-minizinc`, `run`, `report`.
+
+If time slips, **cut in this order:** report polish → summary table → token/latency columns. Do **not** cut: the MiniZinc oracle, both models on p01, the human review, `run_config.json`.
 
 ---
 
-## 4. Research questions (answer for **p01**, not as a %)
+## 4. Out of scope
+
+UI/SaaS, extra solvers, fine-tuning, repair loops, multiple samples per model, LLM-as-judge, a third model, providers other than OpenAI, formal equivalence proofs, agent-emitted `.dzn`, author-written MiniZinc / gold `.mzn`, prompt engineering per model (both models must see identical input).
+
+---
+
+## 5. Research questions (answer per seed, as a case study, not a %)
 
 | ID | Question |
 |---|---|
-| RQ1 | Does attempt 0 compile, and does it end in **valid solver termination** (`SATISFIED` / `OPTIMAL_SOLUTION` / `UNSATISFIABLE`)? |
-| RQ2 | Starting from that same attempt-0 model, do up to three repairs recover from `COMPILE_ERROR` / `SOLVER_ERROR` to valid termination? |
-| RQ3 | Are the stated constraints present? Is the objective the right min/max and quantity? |
-| RQ4 | Which outcome bucket occurred (compile error, solver error, timeout/unknown, valid termination), and what modelling mistakes remain? |
+| RQ1 | Does each model's `.mzn` compile and reach valid termination (`SATISFIED` / `OPTIMAL_SOLUTION` / `UNSATISFIABLE`)? |
+| RQ2 | Which stated constraints (C1, C2, …) does each model miss or get wrong? Is the objective the right sense and quantity, linked to the decisions? |
+| RQ3 | If both are faithful and both terminate validly, which reaches the better objective within the time limit? |
+| RQ4 | If both finish the search (optimum proven), which encoding solves faster? |
+| RQ5 | What does the expensive model cost in latency and tokens, and is the quality gain worth it on this seed? |
 
-**Hypotheses (light):** single-shot on p01 will fail to compile, or will compile a shallow/wrong model; repair may fix compile but not faithfulness.
+**Hypotheses (light):** the cheap model is more likely to fail to compile or to drop hard-to-encode rules (weekend counting, surgery overlap, theatre capacity); the expensive model is more likely to be faithful. Speed differences only matter after faithfulness.
 
 ---
 
-## 5. Agent
-
-**Paired K=0 / K=3 (required).** For p01, in one run:
-
-1. **Generate attempt 0 exactly once** (`LLM.generate`). Save **one** `attempt_0.mzn`. Do not sample again for this seed in the headline run. Inline parameters in that file; do not emit `.dzn`.
-2. Compile/solve that `.mzn`. That row is **K=0**.
-3. **K=3** starts from that exact `.mzn`. Repair **only** while the latest outcome is `COMPILE_ERROR` or `SOLVER_ERROR`, up to three times (always re-attach the original NL). If attempt 0 is `TIMEOUT` / `UNKNOWN` or valid termination, do **not** repair; K=3 copies K=0 (`repairs_used = 0`).
+## 6. Protocol
 
 ```
-model_0 = LLM.generate(nl)               # once for p01; one .mzn, data inlined
-save attempt_0.mzn
-result_0 = minizinc_python.solve(attempt_0.mzn, solver=gecode, t=10s)
-# K=0 := (model_0, result_0)
-
-model, result = model_0, result_0
-repairs_used = 0
-while result in {COMPILE_ERROR, SOLVER_ERROR} and repairs_used < 3:
-    model = LLM.repair(model, diagnostics, original_nl)
-    result = minizinc_python.solve(model, solver=gecode, t=10s)
-    repairs_used += 1
-# K=3 := (model, result)  — same lineage as model_0
+for seed in seeds:                         # v1: just p01
+    for model in [cheap, expensive]:
+        mzn[model] = LLM(model).generate(prompt(seed.nl))   # once; same prompt, temp 0
+        save runs/<id>/<seed>/<model>.mzn
+    for model in [cheap, expensive]:
+        result[model] = minizinc.solve(mzn[model], solver=gecode, t=10s)   # timed
+    compare(result[cheap], result[expensive])
+human fills review.yaml → report re-rendered
 ```
 
-- LLM never grades compile/solve. Log `attempt_0.mzn`, each repaired `.mzn`, diagnostics.
-- If the LLM also dumps a `.dzn`, **ignore it**. Only the `.mzn` is compiled.
-- Prompt the model to put sets, parameters, constraints, and `solve` in **a single `.mzn`**.
-- Wall clock cap: **180s** for p01 including LLM. API key via env only; never put the key in `run_config`.
-- The seed contains **no MiniZinc**. The agent prompt is the p01 NL only.
+- The LLM never grades anything. MiniZinc decides outcome; you decide faithfulness.
+- Generate both models first, then solve one after the other, so LLM latency never overlaps a timed solve.
+- If a reply also contains a `.dzn` block, **ignore it**. Only the `.mzn` block is compiled.
+- The prompt has **output-format rules only** (one `minizinc` code block, data inlined, a `solve` item). No modelling advice, so the comparison measures the models, not the prompt.
+- API key via env (`OPENAI_API_KEY`) only. Never log it or put it in `run_config`.
+- If one model's API call fails, record `LLM_ERROR` for that model and still run the other.
 
 **CLI:**
 
 ```
 python -m ado_mzn check-minizinc
 python -m ado_mzn run --seed data/seed_problems.md --config configs/default.yaml
+python -m ado_mzn report runs/<run_id>
 ```
 
-`check-minizinc` solves a **bundled smoke `.mzn`** (harness fixture, not a seed) to prove MiniZinc + the wrapper work **with no LLM**. `run` writes `runs/<id>/run_config.json` **first**, then `attempt_0.mzn`, K=0/K=3 scores, `results.json`, and `reports/<id>.md`. Fail fast if MiniZinc is missing. The report Method section is filled from `run_config`.
+`check-minizinc` solves a bundled smoke `.mzn` (harness fixture, not a seed) with **no LLM**. `run` probes MiniZinc (fail fast if missing), writes `run_config.json` **first**, then both `.mzn` files, `results.json`, `review.yaml`, and `reports/<id>.md`. `report` re-renders the report after you edit `review.yaml`.
 
-### 5.1 Outcome taxonomy (MiniZinc is the oracle)
+### 6.1 Outcome taxonomy (MiniZinc is the oracle)
 
-Every compile/solve maps to **exactly one** bucket. The wrapper must classify MiniZinc Python exceptions vs `result.status` using these rules — not the LLM.
+Every compile/solve maps to **exactly one** bucket, decided by the wrapper, not the LLM.
 
 | Bucket | Meaning |
 |---|---|
-| **`COMPILE_ERROR`** | MiniZinc **rejects** the model: parse, type-check, or flattening fails. The solver is **not** invoked. |
-| **`SOLVER_ERROR`** | Flattening succeeds and the **solver is invoked**, but **solver execution fails** (crash, abort, unsupported, runtime exception). |
-| **`TIMEOUT` / `UNKNOWN`** | The **solver starts** but **no qualifying result** is returned (time limit, unknown, incomplete). |
-| **`SATISFIED`** / **`OPTIMAL_SOLUTION`** / **`UNSATISFIABLE`** | **Valid solver termination.** A qualifying result. |
+| **`LLM_ERROR`** | The API call failed; no `.mzn` exists for this model. |
+| **`COMPILE_ERROR`** | MiniZinc rejects the model: parse, type-check, or flattening fails. Solver not invoked. |
+| **`SOLVER_ERROR`** | Flattening succeeds, the solver is invoked, but solver execution fails. |
+| **`TIMEOUT / UNKNOWN`** | The solver starts but returns no qualifying result in the time limit. |
+| **`SATISFIED`** / **`OPTIMAL_SOLUTION`** / **`UNSATISFIABLE`** | Valid solver termination. |
 
-**Derived flags**
+For an optimisation seed, `SATISFIED` means a solution was found but optimality was not proven within the limit; `OPTIMAL_SOLUTION` means the search finished.
 
-| Flag | True iff |
-|---|---|
-| `compile_success` | Not `COMPILE_ERROR` (flattening finished; solver was reached or a valid/timeout/unknown status exists) |
-| `solver_success` | Valid termination: `SATISFIED` or `OPTIMAL_SOLUTION` or `UNSATISFIABLE` |
-| `should_repair` | `COMPILE_ERROR` or `SOLVER_ERROR` only |
+### 6.2 `run_config.json` (required)
 
-`TIMEOUT` / `UNKNOWN` is **not** `solver_success` and **not** repaired. Valid `UNSATISFIABLE` **is** `solver_success` (the toolchain finished); whether UNSAT is the *right* model is a faithfulness question (§6).
-
-If the seed is optimisation and status is `SATISFIED` or `OPTIMAL_SOLUTION`, parse an objective value when the solver provides one.
-
-### 5.2 `run_config` (required)
-
-Record **what actually ran**. Write `runs/<id>/run_config.json` at the start of `run`, after probing MiniZinc, before any LLM call. Do not rely on `configs/default.yaml` alone — copy resolved values (model id string returned by the API, MiniZinc version from the binary, …).
-
-**Required fields**
+Written at the start of `run`, after probing MiniZinc and before any LLM call. `resolved_model_id` is filled in from the API response after generation.
 
 ```json
 {
-  "run_id": "2026-08-26T120000Z",
-  "started_at": "2026-08-26T12:00:00Z",
+  "run_id": "2026-10-06T120000Z",
+  "started_at": "2026-10-06T12:00:00Z",
+  "finished_at": "2026-10-06T12:01:10Z",
   "config_path": "configs/default.yaml",
   "seed_file": "data/seed_problems.md",
   "included_seed_ids": ["p01"],
   "protocol": {
-    "generate_once": true,
-    "k_max": 3,
-    "repair_on": ["COMPILE_ERROR", "SOLVER_ERROR"],
-    "output": "single_mzn"
+    "generate_once_per_model": true,
+    "repair": false,
+    "output": "single_mzn",
+    "same_prompt_for_all_models": true
   },
-  "llm": {
-    "provider": "openai",
-    "model_id": "gpt-4.1-mini",
-    "temperature": 0.0,
-    "max_tokens": 4096
+  "models": {
+    "cheap":     {"provider": "openai", "requested_model_id": "gpt-4.1-nano", "resolved_model_id": "gpt-4.1-nano-2025-04-14"},
+    "expensive": {"provider": "openai", "requested_model_id": "gpt-4.1",      "resolved_model_id": "gpt-4.1-2025-04-14"}
   },
-  "minizinc": {
-    "version": "2.8.x",
-    "driver_path": "/opt/homebrew/bin/minizinc",
-    "python_package_version": "0.9.x",
-    "solver_id": "gecode",
-    "time_limit_s": 10
-  },
-  "limits": {
-    "wall_clock_s_per_seed": 180
-  },
-  "git_commit": "abc1234"
+  "llm": {"temperature": 0.0, "max_tokens": 4096, "timeout_s": 120},
+  "prompts_sha256": {"generate": "4f0149b61d71deac"},
+  "minizinc": {"version": "2.10.1", "driver_path": "...", "python_package_version": "0.10.0", "solver_id": "gecode", "time_limit_s": 10},
+  "git": {"commit": "abc1234", "dirty": false}
 }
 ```
 
-**Also log (not secrets):** generate and repair prompt templates (path or hash); per-seed timestamps; MiniZinc diagnostics. **Never log API keys.**
-
-`temperature` / `model_id` / MiniZinc `version` in the report must match this file. If a field could not be probed, store `null` and fail the run only for MiniZinc missing — still write the rest so the experiment is inspectable.
-
-`included_seed_ids` is `["p01"]` for v1.
+The report's Method section is generated from this file, never handwritten.
 
 ---
 
-## 6. Metrics (p01; K=0 and K=3 from one generation)
+## 7. Metrics
 
-K=0 = `attempt_0.mzn` after one compile/solve. K=3 = that same file after up to three in-place repairs (or a copy of K=0 if no repair ran).
+**Automatic (from MiniZinc), per model:**
+
+| Metric | Source |
+|---|---|
+| Outcome | §6.1 bucket |
+| Compiles | outcome ≠ `COMPILE_ERROR` / `LLM_ERROR` |
+| Valid termination | `SATISFIED` / `OPTIMAL_SOLUTION` / `UNSATISFIABLE` |
+| Objective | value reported by the solver (optimisation seeds) |
+| Compile + solve time | wall time around compile and solve, same clock for both models |
+| LLM latency, input/output tokens | API response |
+| `.mzn` lines | generated file |
+
+**Automatic comparison, per seed:**
+
+| Field | Rule |
+|---|---|
+| `objective_better` | Both valid termination → lower wins for minimise, higher for maximise; `tie`; else `NA` |
+| `faster_to_finish` | Both finished the search → lower solve time wins (`tie` if within 0.1s); only one finished → that one; else `NA` |
+| `solve_time_ratio_cheap_over_expensive` | When both finished |
+
+**Human (you, in `review.yaml`), per model:**
 
 | Metric | Pass |
 |---|---|
-| **Compile** | Outcome ≠ `COMPILE_ERROR`. Report @ attempt 0 and @ K=3 |
-| **Solver** | Valid termination (`SATISFIED` / `OPTIMAL_SOLUTION` / `UNSATISFIABLE`). Same two columns |
-| **Repair** | Attempt 0 was `COMPILE_ERROR` or `SOLVER_ERROR` **and** some repair 1..3 reaches valid termination; else `NA` (already valid, or `TIMEOUT`/`UNKNOWN` at attempt 0) |
-| **Constraints** | Human: requirements stated in the NL (optional English C1, C2, …) are in the generated model. Score attempt 0; if the K=3 `.mzn` differs, score it too |
-| **Objective** | Human: right sense + quantity + linked to decisions, as stated in the NL (`NA` if SAT-only) |
-| **Review 1–5** | 1 unrelated … 5 reasonable first draft. Judge **NL vs generated `.mzn` + status** only. Score attempt 0; score K=3 if the `.mzn` changed |
+| Constraints missing | ids from the seed's Constraint inventory the model lacks or gets wrong (`[]` = none) |
+| Objective correct | right sense, right quantity, linked to the decisions |
+| Review 1–5 | 1 unrelated … 5 reasonable first draft. Judge NL vs `.mzn` + solver outcome |
 
-N=1: report the **p01 case**, not a success rate. Solver success ≠ correct model.
+**Reading rule:** the objective and speed comparison only counts for a model whose human review says it is faithful. If the cheap model is "faster" because it dropped C11, that is a faithfulness failure, not a speed win.
 
-**Table columns:** outcome @0 / @K=3, compile @0 / @K=3, solver_success @0 / @K=3, repair yes/no/NA, repairs_used, constraints (and missing ids) @0 and @K=3 if different, objective, review.
+N=1 in v1: report the **p01 case**, not a win rate.
 
 ---
 
-## 7. Seed (one natural-language problem)
+## 8. Seed
 
-**N = 1.** File: `data/seed_problems.md` with a single heading, **`## p01`**. v1 does not add `p02`.
+**File:** `data/seed_problems.md`. v1 has one heading, `## p01`. The runner runs every heading in the file, so more seeds can be added later without code changes, but v1's result is about p01.
 
-**You write English only.** You do **not** write `var`, `constraint`, `solve`, or any other MiniZinc. There is **no** `gold.mzn`. The first `.mzn` is `runs/<id>/p01/attempt_0.mzn` from the LLM.
+**You write English only.** No `var`, `constraint`, `solve`, or any MiniZinc. There is no gold `.mzn`.
 
-A bundled smoke model (`ado_mzn/toolchain/fixtures/smoke.mzn`) is **not** the seed. It only proves the compiler works.
+`ado_mzn/schemas/seed.py` splits the file on `## <id> — <title>` headings. Each model sees **only one seed's NL** per call.
 
-`ado_mzn/schemas/seed.py` parses `## p01` into one record. The runner and LLM see **only that NL**.
+**Completeness test (enforced by the parser):**
 
-**Completeness test (p01 must pass):**
+- `### Problem`, `### Instance data`, `### Objective` present and non-empty
+- No MiniZinc syntax (`var int`, `solve minimize`, a line starting with `constraint`, `array[`, `include "`)
+- Unique ids; heading id matches `- id:`
 
-- Clear decisions (what is chosen)
-- Constraints stated in the problem text (or English C1, C2, … — still not MiniZinc)
-- SAT **or** min/max + quantity in words
-- **Numeric data** in the prose and/or `### Instance data`
-- **No MiniZinc keywords** (`var int`, `constraint`, `solve minimize`, …)
-
-**Seed schema (v1 uses this one problem only):**
+**Seed schema:**
 
 ```markdown
 ## p01 — Short title
 - id: p01
-- family: capacity_expansion
+- family: rostering_scheduling
 - type: optimisation
 
 ### Problem
@@ -210,137 +213,150 @@ Natural-language statement. Say what to choose, the rules, and min/max what.
 
 ### Instance data
 
-Numbers the agent must inline into its `.mzn`.
+Numbers the model must inline into its `.mzn`.
 
-### Constraint inventory   # optional, plain English
+### Constraint inventory   # optional, plain English; ids feed review.yaml
 - C1: ...
 
 ### Objective
 - sense: minimize
-- quantity: total building cost
+- quantity: request penalty + staffing penalty
 ```
 
-No `### Gold` section. The current repo seed (PowerGen capacity expansion) is the intended p01.
+The current seed (hospital staff rostering and surgery scheduling, instance A: one shift type) is p01.
 
 ---
 
-## 8. Repo layout
+## 9. Repo layout
 
 ```
-ado_mzn/          # agent, minizinc wrapper, eval, report
-ado_mzn/toolchain/fixtures/smoke.mzn   # bundled toolchain test; not a seed
-data/seed_problems.md              # one NL seed: p01
-configs/default.yaml
+ado_mzn/toolchain/minizinc.py        # probe, check-minizinc, timed compile_and_solve, outcomes
+ado_mzn/toolchain/fixtures/smoke.mzn # bundled toolchain test; not a seed
+ado_mzn/schemas/seed.py              # parse seed file → one record per heading
+ado_mzn/schemas/run_config.py        # load YAML, build/write run_config.json
+ado_mzn/schemas/results.py           # per-seed, per-model result records
+ado_mzn/agent/prompts.py             # the one generate prompt (same for both models)
+ado_mzn/agent/generate.py            # OpenAI Responses call, extract .mzn, save <model>.mzn
+ado_mzn/eval/metrics.py              # cheap vs expensive comparison
+ado_mzn/eval/runner.py               # full run
+ado_mzn/report/render.py             # reports/<run_id>.md
+data/seed_problems.md                # NL seed(s): p01
+configs/default.yaml                 # cheap/expensive model ids, solver, limits
 runs/<id>/run_config.json
 runs/<id>/results.json
-runs/<id>/p01/attempt_0.mzn        # LLM MiniZinc for p01
-reports/
-prd.md
-README.md
+runs/<id>/review.yaml                # you fill this in
+runs/<id>/p01/cheap.mzn              # + cheap.raw.txt (full LLM reply)
+runs/<id>/p01/expensive.mzn          # + expensive.raw.txt
+reports/<id>.md
 ```
 
 ---
 
-## 9. Two-week plan
+## 10. Two-week plan
 
 | Days | Do | Done when |
 |---|---|---|
-| **1–2** | Install MiniZinc; wrapper; `check-minizinc` on bundled smoke `.mzn` | smoke model reaches valid termination, **no LLM** |
-| **3–4** | Finish **p01** NL in `data/seed_problems.md`; parser | one complete heading |
-| **5–7** | LLM generate **once** for p01; save `attempt_0.mzn`; optional repair | p01 `.mzn` exists |
-| **8–9** | `run_config.json` + paired K=0/K=3 for p01 | one paired result row |
-| **10–11** | You score NL vs generated `.mzn` (constraints, objective, review) | p01 reviewed |
-| **12–13** | `reports/<id>.md` + README | clone-and-run documented |
-| **14** | Freeze p01 NL | tag v1 |
-
-Slip buffer: skip repair, not the one seed.
+| **1–2** | MiniZinc install; wrapper; `check-minizinc` | smoke model reaches valid termination, no LLM |
+| **3–4** | p01 NL complete; parser | `parse_seeds` returns p01 with no errors |
+| **5–6** | First real `run` with both models | `cheap.mzn`, `expensive.mzn`, `results.json` exist |
+| **7–9** | Review both models against the NL; fill `review.yaml` | every human field filled for p01 |
+| **10–11** | If both time out or both fail trivially, adjust the solver time limit (same for both) and rerun; keep the earlier run | one run you can explain |
+| **12–13** | Report prose (findings, failure notes) + README | clone-and-run documented |
+| **14** | Freeze p01 NL and config; tag v1 | `reports/<id>.md` final |
 
 ---
 
-## 10. Done-when (v1)
+## 11. Done-when (v1)
 
-- [ ] `check-minizinc` passes on the bundled smoke model (no LLM, no seed MiniZinc).
-- [ ] Each `run` writes `run_config.json` (resolved LLM id, MiniZinc version, solver, limits, `included_seed_ids: ["p01"]`) before generation.
-- [ ] `run` generates **p01 once**, saves `attempt_0.mzn`, and writes K=0 + K=3 into `results.json`.
-- [ ] Report Method section is generated from `run_config`, not handwritten model names.
-- [ ] All six metrics filled for p01 (you are the reviewer, using the NL as the spec).
-- [ ] `reports/<id>.md` exists: method, **p01 case study**, limitations (N=1, **author wrote NL only**, LLM wrote the MiniZinc).
-- [ ] README: MiniZinc install, env var, `check-minizinc`, `run`.
-- [ ] Negative results are acceptable.
-
----
-
-## 11. Report outline (fill from `results.json`)
-
-1. Question  
-2. Method — copy from `run_config.json` (LLM `model_id`, MiniZinc version, Gecode, 10s, generate once, K=3, single `.mzn`)  
-3. Seed p01 (PowerGen / the one NL problem)  
-4. p01 results: K=0 vs K=3 (not a rate)  
-5. Failure notes (only what occurred)  
-6. Limitations (N=1, NL-only, no reference MiniZinc, human faithfulness) and next step
+- [ ] `check-minizinc` passes on the bundled smoke model.
+- [ ] `run` writes `run_config.json` (both requested and resolved model ids, MiniZinc version, solver, limit) before generation.
+- [ ] Both models generated exactly one `.mzn` for p01 from the identical prompt.
+- [ ] Both `.mzn` files solved with the same solver and time limit; outcome, objective, time recorded.
+- [ ] `review.yaml` filled for both models.
+- [ ] `reports/<id>.md`: method from `run_config`, p01 comparison, failure notes, limitations.
+- [ ] README: MiniZinc install, env var, `check-minizinc`, `run`, `report`.
+- [ ] Negative results are acceptable (e.g. both fail, or cheap wins).
 
 ---
 
-## 12. Risks (2-week)
+## 12. Report outline (generated, then you add prose)
+
+1. Question
+2. Method — from `run_config.json` (both model ids, temperature, prompt hash, MiniZinc version, Gecode, time limit)
+3. Results per seed — cheap vs expensive table (automatic + human rows), comparison lines
+4. Summary across seeds
+5. Failure notes — diagnostics for every non-valid outcome
+6. Limitations — N=1, one sample per model, no reference model, one human reviewer, machine-dependent timing
+
+---
+
+## 13. Risks
 
 | Risk | What you do |
 |---|---|
-| MiniZinc not installed | Day 1 `check-minizinc`; README |
-| Smoke fixture fails | Fix wrapper/install before any LLM |
-| Repair deletes constraints | Always re-attach NL |
-| Treating N=1 as a general LLM rate | Write a case study only |
-| Scope creep | No second LLM, no UI, **do not write seed gold `.mzn`** |
-| Independent K=0 reroll | K=3 must load saved `attempt_0.mzn` |
-| Agent emits `.mzn` + `.dzn` | Compile only the `.mzn` |
-| Missing MiniZinc version / model id | Require `run_config.json` |
-| Config yaml ≠ what ran | Store resolved values after probe |
-| Incomplete p01 NL (no numbers / no objective) | Do not run the agent until p01 is complete |
-| Adding more seeds mid-sprint | Out of scope for v1 |
+| MiniZinc not installed | Day 1 `check-minizinc` |
+| Both models time out (hard seed, 10s) | Raise `time_limit_s` for both, rerun, report both runs |
+| Fast but unfaithful model looks like a "win" | Reading rule in §7: review gates objective/speed |
+| Prompt favours one model | One shared prompt, format rules only; hash in `run_config` |
+| Nondeterminism despite temperature 0 | State it; one sample per model is a limitation |
+| Model id drifts behind an alias | Record `resolved_model_id` from the API |
+| Timing noise | Solve sequentially on the same machine; differences under 0.1s are ties |
+| Scope creep (repair, more models, more seeds) | Out of scope for v1 |
+| API cost | One call per model per seed; tokens recorded in `results.json` |
 
 ---
 
-## 13. Result record (minimum)
+## 14. Result record (per seed in `results.json`)
 
 ```json
 {
-  "run_config_path": "runs/<id>/run_config.json",
-  "instance_id": "p01",
-  "attempt_0_path": "runs/<id>/p01/attempt_0.mzn",
-  "outcome_k0": "COMPILE_ERROR",
-  "outcome_k3": "OPTIMAL_SOLUTION",
-  "compile_success_k0": false,
-  "solver_success_k0": false,
-  "compile_success_k3": true,
-  "solver_success_k3": true,
-  "repair_success": true,
-  "repairs_used": 2,
-  "constraints_missing_k0": ["C3"],
-  "constraints_missing_k3": [],
-  "objective_correct_k0": false,
-  "objective_correct_k3": true,
-  "review_score_k0": 2,
-  "review_score_k3": 4
+  "seed_id": "p01",
+  "title": "Hospital staff rostering and surgery scheduling (instance A: one shift type)",
+  "objective_sense": "minimize",
+  "constraint_ids": ["C1", "C2", "...", "C12"],
+  "attempts": {
+    "cheap": {
+      "requested_model_id": "gpt-4.1-nano",
+      "resolved_model_id": "gpt-4.1-nano-2025-04-14",
+      "outcome": "COMPILE_ERROR",
+      "mzn_path": "runs/<id>/p01/cheap.mzn",
+      "mzn_lines": 84,
+      "llm": {"duration_s": 6.2, "usage": {"input_tokens": 2100, "output_tokens": 1400}},
+      "solve": {"outcome": "COMPILE_ERROR", "objective": null, "solve_time_s": 0.08, "diagnostics": "..."}
+    },
+    "expensive": {
+      "requested_model_id": "gpt-4.1",
+      "outcome": "SATISFIED",
+      "solve": {"outcome": "SATISFIED", "objective": 607, "solve_time_s": 10.1}
+    }
+  },
+  "comparison": {
+    "objective_better": "NA",
+    "faster_to_finish": "NA",
+    "solve_time_ratio_cheap_over_expensive": null
+  }
 }
 ```
 
 ---
 
-## 14. MiniZinc Python (contract)
+## 15. MiniZinc Python (contract)
 
 ```python
 from datetime import timedelta
 import minizinc
 
-model = minizinc.Model(mzn_path)  # one file; no .dzn in v1
+model = minizinc.Model(mzn_path)  # one file; no .dzn
 inst = minizinc.Instance(minizinc.Solver.lookup("gecode"), model)
+result = inst.solve(timeout=timedelta(seconds=10))   # timed by the wrapper
 # MiniZincError before solver invoke → COMPILE_ERROR
 # solver invoked then fails → SOLVER_ERROR
 # result.status unknown / limit → TIMEOUT / UNKNOWN
 # SATISFIED | OPTIMAL_SOLUTION | UNSATISFIABLE → valid termination
 ```
 
-Pip package `minizinc` does **not** include the compiler. Install MiniZinc locally.
+The pip package `minizinc` does not include the compiler. Install MiniZinc locally.
 
 ---
 
-**Brief:** In two weeks, write **one** NL seed (p01), prove MiniZinc with a bundled smoke model (no LLM), generate one `.mzn` for that seed, pair K=0/K=3, score compile/solve/repair plus human faithfulness against the NL, and ship `run_config.json` plus a short p01 report.
+**Brief:** In two weeks, write one NL seed (p01), let a cheap model (`gpt-4.1-nano`) and an expensive model (`gpt-4.1`) each write one `.mzn` from the identical prompt, solve both with the same Gecode time limit, compare outcome, objective and speed, judge faithfulness yourself, and ship `run_config.json`, `results.json`, and a short comparison report.

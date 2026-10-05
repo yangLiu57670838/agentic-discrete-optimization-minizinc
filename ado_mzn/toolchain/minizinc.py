@@ -1,8 +1,9 @@
-# Wrap MiniZinc Python: probe, check-minizinc smoke fixture, solve one .mzn, classify outcomes.
+# Wrap MiniZinc Python: probe, check-minizinc smoke fixture, solve and time one .mzn, classify outcomes.
 
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version as pkg_version
@@ -22,8 +23,6 @@ OUTCOME_UNSAT = "UNSATISFIABLE"
 VALID_TERMINATION = frozenset(
     {OUTCOME_SATISFIED, OUTCOME_OPTIMAL, OUTCOME_UNSAT}
 )
-REPAIRABLE = frozenset({OUTCOME_COMPILE_ERROR, OUTCOME_SOLVER_ERROR})
-
 
 class MiniZincNotFoundError(RuntimeError):
     """Raised when the MiniZinc binary cannot be found (fail fast)."""
@@ -59,6 +58,7 @@ class SolveResult:
     solution: Optional[dict[str, Any]] = None
     raw_status: Optional[str] = None
     statistics: dict[str, Any] = field(default_factory=dict) # statistics of the solve performance, really important for the performance evaluation
+    solve_time_s: Optional[float] = None  # wall time of compile + solve, same clock for every model
 
     @property
     def compile_success(self) -> bool:
@@ -68,19 +68,16 @@ class SolveResult:
     def solver_success(self) -> bool:
         return self.outcome in VALID_TERMINATION
 
-    @property
-    def should_repair(self) -> bool:
-        return self.outcome in REPAIRABLE
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "outcome": self.outcome,
             "compile_success": self.compile_success,
             "solver_success": self.solver_success,
-            "should_repair": self.should_repair,
             "diagnostics": self.diagnostics,
             "objective": self.objective,
             "raw_status": self.raw_status,
+            "solve_time_s": self.solve_time_s,
+            "statistics": self.statistics,
         }
 
 
@@ -221,6 +218,21 @@ def _extract_objective(result: Any) -> Optional[float]:
         return None
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, timedelta):
+        return value.total_seconds()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _extract_statistics(result: Any) -> dict[str, Any]:
+    stats = getattr(result, "statistics", None) or {}
+    if not isinstance(stats, dict):
+        return {}
+    return {str(k): _json_safe(v) for k, v in stats.items()}
+
+
 def _extract_solution(result: Any) -> Optional[dict[str, Any]]:
     solution = getattr(result, "solution", None)
     if solution is None:
@@ -293,6 +305,7 @@ def compile_and_solve(
             f"MiniZinc solver '{solver_id}' not found. {exc}"
         ) from exc
 
+    started = time.monotonic()
     try:
         model = Model(path)
         instance = Instance(solver, model)
@@ -303,6 +316,7 @@ def compile_and_solve(
             outcome=outcome,
             diagnostics=_format_exception(exc),
             raw_status=type(exc).__name__,
+            solve_time_s=time.monotonic() - started,
         )
     except Exception as exc:
         # Unexpected failure after flattening is treated as solver-side.
@@ -313,21 +327,24 @@ def compile_and_solve(
                 outcome=OUTCOME_TIMEOUT_UNKNOWN,
                 diagnostics=text,
                 raw_status=type(exc).__name__,
+                solve_time_s=time.monotonic() - started,
             )
         return SolveResult(
             outcome=OUTCOME_SOLVER_ERROR,
             diagnostics=text,
             raw_status=type(exc).__name__,
+            solve_time_s=time.monotonic() - started,
         )
+    elapsed = time.monotonic() - started
 
     status = getattr(result, "status", None)
     outcome = _outcome_from_status(status)
-    stats = getattr(result, "statistics", None) or {}
     return SolveResult(
         outcome=outcome,
         diagnostics="" if outcome in VALID_TERMINATION else str(status),
         objective=_extract_objective(result),
         solution=_extract_solution(result),
         raw_status=getattr(status, "name", str(status)),
-        statistics=dict(stats) if isinstance(stats, dict) else {},
+        statistics=_extract_statistics(result),
+        solve_time_s=elapsed,
     )

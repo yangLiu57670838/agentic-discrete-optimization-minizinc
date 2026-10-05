@@ -1,1 +1,1 @@
-# LLM generate-once and repair loop (single .mzn, K=3 from attempt 0).
+# LLM generate-once per model (cheap and expensive write one .mzn each per seed; no repair).

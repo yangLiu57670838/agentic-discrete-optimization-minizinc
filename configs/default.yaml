@@ -1,1 +1,24 @@
-# Requested run defaults (LLM, solver, K, time limits); resolved values go in run_config.json.
+# Requested run defaults (two LLMs, solver, limits); resolved values go in run_config.json.
+
+# Both models get the same prompt, temperature, and token budget; only model_id differs.
+models:
+  cheap:
+    provider: openai
+    model_id: gpt-4.1-nano
+  expensive:
+    provider: openai
+    model_id: gpt-4.1
+
+llm:
+  temperature: 0.0
+  max_tokens: 4096
+  timeout_s: 120
+
+# Same solver and time limit for every generated .mzn, so solve times are comparable.
+minizinc:
+  solver_id: gecode
+  time_limit_s: 10
+
+paths:
+  runs_dir: runs
+  reports_dir: reports

@@ -1,1 +1,1 @@
-# Parsers and schemas for seeds, run_config, and results records.
+# Parsers and schemas for seeds, run_config, and cheap vs expensive results records.
